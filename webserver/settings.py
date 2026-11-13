@@ -55,6 +55,9 @@ settings = {
 
     "ENABLE_OPDS_SERVICE"      : True,
     "ENABLE_OPDS_AUTH"         : False,
+    # 允许 OPDS 绕过站点级 REQUIRE_LOGIN（个人模式给无法输入账号的阅读设备用）。
+    # 匿名开关优先：勾选后即使「必须登录」或 OPDS 认证生效，OPDS 仍可匿名访问。
+    "OPDS_ALLOW_ANONYMOUS"     : False,
     "opds_will_display"        : ["*"],
     "opds_wont_display"        : [],
     "opds_max_tags_shown"      : 10240,
@@ -80,6 +83,14 @@ settings = {
     "BOOKBARN_COLLECTION_HOUR": 3,
     "USE_BOOKBARN_PROXY": False,
     "BOOK2AUDIO_PROXY": "",
+    # 功能模块总开关（模块级：一个模块一个勾选框，见 webserver/base/modules.py）。
+    # 关闭后入口隐藏、设置不渲染、接口拒绝；不删除任何已有数据。
+    "ENABLE_MODULE_MULTIUSER": True,
+    "ENABLE_MODULE_COMMUNITY": True,
+    "ENABLE_MODULE_SHARED_READING": True,
+    "ENABLE_MODULE_AUDIO": True,
+    "ENABLE_MODULE_PHYSICAL": True,
+    "ENABLE_MODULE_AI": True,
     "ENABLE_PHYSICAL_BOOKS": True,
     "ENABLE_FOLDER_BROWSE": False,
     "ALLOW_GUEST_UPLOAD": False,
@@ -207,9 +218,12 @@ settings = {
     "ENABLE_HOMEPAGE_READING_STATS": True,
     "ENABLE_HOMEPAGE_READING_BOOKS": True,
     "ENABLE_HOMEPAGE_BOOKLISTS": False,
-    # 书单卡片的封面条是否自动横向轮播。关闭后只保留手动横滑，适合低配设备或
-    # 不希望页面持续动起来的站点；前端读 sys.booklist_cover_scroll
-    "ENABLE_BOOKLIST_COVER_SCROLL": True,
+    # 首页动效总开关（2026-10-26 起取代原「书单封面自动滚动」ENABLE_BOOKLIST_COVER_SCROLL，
+    # 书单滚动并入此开关统一管理）：开启时首页播放区块/封面进场动画、「换一批」换书过渡、
+    # 封面加载淡入与书单封面自动滚动；关闭后首页保持静止（各区块直接呈现终态，
+    # 书单封面只保留手动横滑），访客系统开启「减少动效」偏好时同样按关闭处理。
+    # 前端读 sys.home_motion
+    "ENABLE_HOME_MOTION": True,
     "HOMEPAGE_CONFIG": {},
     "ALLOW_NEW_USER_MANAGE_BOOK": True,
     "ALLOW_NEW_USER_PUSH_BOOK": True,
@@ -290,7 +304,8 @@ settings = {
 
     # 私人图书馆标准模式：所有页面与 /api 一律要求登录，访客权限（ALLOW_GUEST_*）随之失效。
     # 开启后 INVITE_MODE 被覆盖（访问码是比登录更弱的门，不叠加），见 BaseHandler.need_invited。
-    'REQUIRE_LOGIN' : False,
+    # 默认开启：多用户站点开箱即私，管理员想开访客阅读再手动关掉。
+    'REQUIRE_LOGIN' : True,
 
     'ALLOW_GUEST_READ' : True,
     'ALLOW_GUEST_PUSH' : True,

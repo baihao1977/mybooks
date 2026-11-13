@@ -1,6 +1,6 @@
 <template>
     <v-row>
-        <v-col cols=12 xs=12 sm=6 md=4 lg=3 xl=2 v-for="(book,idx) in render_books" :key="idx+'-books-'+book.id" class="book-list-card d-flex">
+        <v-col cols=12 xs=12 sm=6 md=4 lg=3 xl=2 v-for="(book,idx) in render_books" :key="idx+'-books-'+book.id" class="book-list-card d-flex" :style="{ '--i': idx }">
             <v-card :to="selectable ? undefined : book.href" class="flex-grow-1"
                     @click="selectable ? $emit('toggle-select', book.id) : undefined">
                 <div v-if="selectable" class="book-select-badge" @click.stop.prevent="$emit('toggle-select', book.id)">
@@ -16,8 +16,8 @@
                             <div v-if="book.shared" class="shared-book-badge">
                                 <v-icon small color="white">mdi-cloud-outline</v-icon>
                             </div>
-                            <!-- 实体书角标 -->
-                            <div v-if="book.book_type === 1" class="physical-book-badge" :class="{ 'badge-shifted': book.shared }">
+                            <!-- 实体书角标（模块关闭时隐藏，书本身仍在书库里） -->
+                            <div v-if="physicalModuleOn && book.book_type === 1" class="physical-book-badge" :class="{ 'badge-shifted': book.shared }">
                                 <v-icon small color="white">mdi-bookshelf</v-icon>
                             </div>
                             <!-- 音频书角标 -->
@@ -33,7 +33,7 @@
                                 <v-chip rounded x-small color="green" class="white--text ma-1" v-if="book.category">
                                     {{ book.category }}
                                 </v-chip>
-                                <v-chip rounded x-small color="dark" class="white--text ma-1" v-if="book.location">
+                                <v-chip rounded x-small color="dark" class="white--text ma-1" v-if="physicalModuleOn && book.location">
                                     {{ book.location }}
                                 </v-chip>
                                 <template v-for="(file, index) in book.files?.slice(0, 3)">
@@ -85,6 +85,10 @@ export default {
     components: {
     },
     computed: {
+        physicalModuleOn() {
+            const mods = (this.$store.state.sys && this.$store.state.sys.modules) || {};
+            return mods.physical !== false;
+        },
         render_books: function() {
             return (this.books || []).map( b => {
                 // 确保b是一个对象
@@ -310,6 +314,11 @@ export default {
     display: flex;
     width: 100%;
     aspect-ratio: 3/4;
+    /* 圆角必须同时写在容器上：封面（v-img）带 12px 内联圆角，hover 放大 1.06 后会
+       溢出这一层；容器若仍是直角，overflow:hidden 的裁切边界也就是直角，四角被
+       削平，看起来像「圆角被卡掉了」。把裁切边界做成同半径圆角即可 */
+    border-radius: 12px;
+    overflow: hidden;
 }
 .book-img-container .v-image {
     width: 100%;
