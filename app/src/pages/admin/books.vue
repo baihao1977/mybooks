@@ -64,6 +64,12 @@
                                 </v-list-item-icon>
                                 <v-list-item-title>{{ $t('admin.books.extractCatalog') }}</v-list-item-title>
                             </v-list-item>
+                            <v-list-item @click="showExtractWordCountDialog">
+                                <v-list-item-icon>
+                                    <word-count-icon />
+                                </v-list-item-icon>
+                                <v-list-item-title>{{ $t('admin.books.extractWordCount') }}</v-list-item-title>
+                            </v-list-item>
                             <v-list-item v-if="aiModuleOn" @click="aiFill" :disabled="books_selected.length === 0">
                                 <v-list-item-icon>
                                     <v-icon>mdi-robot</v-icon>
@@ -191,7 +197,7 @@
         </v-progress-linear>
         <v-data-table
             dense
-            class="elevation-1 text-body-2"
+            class="elevation-1 text-body-2 admin-books-table"
             show-select
             v-model="books_selected"
             item-key="id"
@@ -207,13 +213,14 @@
         >
             <template v-slot:top>
                 <v-data-footer
+                    class="admin-books-top-footer"
                     :options.sync="options"
                     :pagination="topPagination"
                     :items-per-page-options="[10, 50, 100, 200, 500, 1000]"
                     @update:options="options = $event"
                 >
                     <template v-slot:prepend>
-                        <span v-if="books_selected.length > 0" class="caption grey--text mx-2">
+                        <span v-if="books_selected.length > 0 && !$vuetify.breakpoint.xs" class="caption grey--text mx-2">
                             {{ $t('admin.books.selectedCount', { count: books_selected.length }) }}
                         </span>
                     </template>
@@ -235,6 +242,19 @@
                         </div>
                     </template>
                 </v-data-footer>
+            </template>
+            <!-- 移动端：用卡片列表替代表格行 -->
+            <template v-slot:body.append>
+                <tr v-if="$vuetify.breakpoint.xs && items.length" class="admin-books-mobile-cards-row">
+                    <td class="admin-books-mobile-cards-cell" :colspan="responsiveHeaders.length + 1">
+                        <admin-book-card
+                            v-for="item in items"
+                            :key="'mobile-card-' + item.id"
+                            :book="item"
+                            @delete="showDeleteBookDialog"
+                        />
+                    </td>
+                </tr>
             </template>
             <template v-slot:item.status="{ item }">
                 <v-chip small v-if="item.status == 'ready'" class="success">{{ $t('admin.books.status.ready') }}</v-chip>
@@ -645,6 +665,26 @@
             </p>
         </AppDialog>
 
+        <!-- 统计字数确认对话框 -->
+        <AppDialog
+            v-model="extract_word_count_dialog"
+            type="confirm"
+            :title="$t('admin.books.reminderTitle')"
+            color="info"
+            width="500"
+            transition="dialog-bottom-transition"
+            :dismiss-label="$t('admin.books.cancel')"
+            :confirm-text="$t('admin.books.execute')"
+            @confirm="extractWordCountBatch"
+        >
+            <p v-if="books_selected.length > 0">
+                {{ $t('admin.books.extractWordCountSelectedConfirm', { count: books_selected.length }) }}
+            </p>
+            <p v-else>
+                {{ $t('admin.books.extractWordCountAllConfirm') }}
+            </p>
+        </AppDialog>
+
         <!-- 清理无效记录确认对话框 -->
         <AppDialog
             v-model="clear_invalid_items_dialog"
@@ -700,9 +740,11 @@
 import { languageOptions } from "~/utils/languageCodes";
 import { toStars, fromStars } from "~/utils/rating";
 import SearchBar from "~/components/SearchBar.vue";
+import WordCountIcon from "~/components/WordCountIcon.vue";
+import AdminBookCard from "~/components/AdminBookCard.vue";
 
 export default {
-    components: { SearchBar },
+    components: { SearchBar, WordCountIcon, AdminBookCard },
     data: () => ({
         snack: false,
         snackColor: "",
@@ -714,6 +756,7 @@ export default {
         kindle_convert_dialog: false,
         update_title_sort_dialog: false,
         extract_catalog_dialog: false,
+        extract_word_count_dialog: false,
         clear_invalid_items_dialog: false,
         delete_book_dialog: false,
         delete_selected_books_dialog: false,
@@ -1053,6 +1096,10 @@ export default {
             this.extract_catalog_dialog = true;
         },
 
+        showExtractWordCountDialog() {
+            this.extract_word_count_dialog = true;
+        },
+
         showClearInvalidItemsDialog() {
             this.clear_invalid_items_dialog = true;
         },
@@ -1184,6 +1231,32 @@ export default {
             }
 
             this.$backend("/book/catalog/batch", {
+                method: "POST",
+                body: JSON.stringify(body),
+            })
+                .then((rsp) => {
+                    this.handleApiResponse(rsp);
+                    if (rsp.err === "ok") {
+                        this.$alert("success", rsp.msg);
+                    }
+                    this.books_selected = [];
+                    this.getDataFromApi();
+                })
+                .finally(() => {
+                    this.loading = false;
+                });
+        },
+
+        extractWordCountBatch() {
+            this.loading = true;
+            this.extract_word_count_dialog = false;
+
+            const body = {};
+            if (this.books_selected.length > 0) {
+                body.idlist = this.books_selected.map((book) => book.id);
+            }
+
+            this.$backend("/book/word_count/batch", {
                 method: "POST",
                 body: JSON.stringify(body),
             })
@@ -1463,21 +1536,36 @@ export default {
             })
         },
         async getSettings() {
+            let bookNav = '';
             try {
                 const response = await this.$backend('/admin/settings');
                 if (response.err === 'ok' && response.settings) {
                     if (response.settings.USE_DYNAMIC_COVER) {
                         this.use_dynamic_cover = response.settings.USE_DYNAMIC_COVER;
                     }
-                    if (response.settings.BOOK_NAV) {
-                        this.categories = response.settings.BOOK_NAV.split('\n').map(line => {
-                            const parts = line.split('=');
-                            return parts[0].trim();
-                        }).filter(c => c);
-                    }
+                    bookNav = response.settings.BOOK_NAV || '';
                 }
             } catch (error) {
                 console.error('Failed to get settings:', error);
+            }
+            await this.loadCategories(bookNav);
+        },
+        // 异步加载分类列表（BOOK_NAV 配置优先，数据库里的分类补充在后面）
+        async loadCategories(bookNav) {
+            // BOOK_NAV 每行形如「分组=标签1/标签2」，分类下拉只取分组名
+            const navCategories = bookNav.split('\n').map(line => {
+                const parts = line.split('=');
+                return parts[0].trim();
+            }).filter(c => c);
+            try {
+                const response = await this.$backend('/categories?simple=1');
+                if (response.err === 'ok') {
+                    const seen = new Set(navCategories);
+                    const dbCategories = (response.categories || []).map(c => c.name).filter(c => c && !seen.has(c));
+                    this.categories = [...navCategories, ...dbCategories];
+                }
+            } catch (error) {
+                console.error('Failed to load categories:', error);
             }
         },
     },
@@ -1546,101 +1634,72 @@ export default {
     }
 
     /* 确保图片单元格也有合适的宽度和右对齐 - 桌面端表格 */
-    .v-data-table td:has(.v-image) {
+    .v-data-table td:has(.v-image):not(.admin-books-mobile-cards-cell) {
         width: 100% !important;
         min-width: 40px !important;
         padding: 6px !important;
     }
 
     /* 确保图片链接也是右对齐的 - 桌面端表格 */
-    .v-data-table td:has(.v-image) a {
+    .v-data-table td:has(.v-image):not(.admin-books-mobile-cards-cell) a {
         display: flex !important;
         justify-content: flex-end !important;
         width: 100% !important;
     }
 
-    /* 移动端表格整体布局 */
+    /* 移动端改用卡片列表：隐藏 Vuetify 默认的表头与逐条表格行 */
+    .v-data-table-header-mobile,
     .v-data-table__mobile-table-row {
-        font-size: 14px !important;
-        margin-bottom: 16px !important;
-        border-bottom: 1px solid rgba(0,0,0,0.1) !important;
-        padding-bottom: 12px !important;
+        display: none !important;
     }
 
-    /* 移动端表格行 - 紧凑高度约 20px */
-    .v-data-table__mobile-row {
-        display: flex !important;
-        flex-direction: row !important;
-        align-items: center !important;
-        justify-content: center !important;
-        min-height: 20px !important;
-        padding: 0 6px !important;
-        margin-bottom: 0 !important;
+    /* 卡片列表所在的单元格 */
+    .admin-books-mobile-cards-row > td {
+        padding: 8px 8px 0 !important;
         border-bottom: none !important;
-        width: 100% !important;
-        min-width: auto !important;
     }
 
-    /* 隐藏字段标题，移动端只显示数据内容 */
-    .v-data-table__mobile-row__header {
-        display: none !important;
+    /* 分页栏紧凑化：每页数量、页码、翻页按钮保持在一行 */
+    .admin-books-table .v-data-footer {
+        flex-wrap: nowrap !important;
+        padding: 0 2px !important;
     }
 
-    /* 移动端表格单元格内容 - 居中对齐 */
-    .v-data-table__mobile-row__cell {
-        font-size: 14px !important;
-        flex: 1 !important;
-        word-break: break-word !important;
-        min-width: 0 !important;
-        padding: 0 !important;
-        text-align: center !important;
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-    }
-
-    /* 隐藏每行的多选框（Vuetify 在 mobile 模式下渲染为含 .v-simple-checkbox 的行） */
-    .v-data-table__mobile-row:has(.v-simple-checkbox) {
-        display: none !important;
-    }
-
-    /* 封面图片所在行 - 高度 120px，居中对齐 */
-    .v-data-table__mobile-row:has(.v-image) {
-        width: 100% !important;
-        min-width: 100% !important;
-        min-height: 120px !important;
-        height: 120px !important;
-        align-items: center !important;
-        justify-content: center !important;
-        padding: 12px !important;
-    }
-
-    /* 封面图片所在行的内容 */
-    .v-data-table__mobile-row:has(.v-image) .v-data-table__mobile-row__cell {
-        flex: 1 !important;
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        min-height: 120px !important;
-    }
-
-    /* 封面图片所在行的链接 - 居中 */
-    .v-data-table__mobile-row:has(.v-image) .v-data-table__mobile-row__cell a {
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        width: auto !important;
-    }
-
-    /* 封面图片 - 居中显示，尺寸适配 120px 行高（3:4 比例） */
-    .v-data-table__mobile-row:has(.v-image) .v-data-table__mobile-row__cell .v-image {
-        min-width: 90px !important;
-        max-width: 90px !important;
-        width: 90px !important;
-        min-height: 120px !important;
-        max-height: 120px !important;
-        height: 120px !important;
+    .admin-books-table .v-data-footer__select {
+        flex: 0 0 auto !important;
         margin: 0 !important;
+        font-size: 0 !important;
+    }
+
+    .admin-books-table .v-data-footer__select .v-select {
+        flex: 0 0 62px !important;
+        width: 62px !important;
+        min-width: 62px !important;
+        max-width: 62px !important;
+        margin: 4px 2px !important;
+    }
+
+    .admin-books-table .v-data-footer__pagination {
+        flex: 0 1 auto !important;
+        min-width: 0 !important;
+        margin: 0 2px !important;
+    }
+
+    .admin-books-table .v-data-footer__icons-before .v-btn:last-child {
+        margin-right: 0 !important;
+    }
+
+    .admin-books-table .v-data-footer__icons-after .v-btn:first-child {
+        margin-left: 0 !important;
+    }
+
+    .admin-books-table .v-data-footer .v-btn--icon {
+        width: 30px !important;
+        height: 30px !important;
+    }
+
+    .admin-books-table .v-data-footer .page-jump-input {
+        width: 44px !important;
     }
 
     /* Chip组件在小屏幕上保持合适大小 */
